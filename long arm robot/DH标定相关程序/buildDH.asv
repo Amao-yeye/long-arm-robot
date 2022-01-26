@@ -1,0 +1,135 @@
+clear all
+z = [-1,0,0;
+ -0.794975828024380 -0.561038384370742 -0.230758237381939   
+
+
+
+
+-0.874513865494577  -0.163000241532817  0.456789251535078
+0.100776840614935 -0.242099100402452  -0.965003654904993
+0.698866830518283  -0.0307278404288856  -0.714591458823786
+-0.103216146789308 -0.330567855521115 -0.938121164849263
+-0.794975828024380 -0.561038384370742 -0.230758237381939];  %法向量，第一个是在双目相机坐标系下机械臂轴一z轴的单位向量；
+point = [ -103.92	-67.11	-2567.06
+0.000245142770654138,0.166801968365188,0.0594395001987662;
+-0.182063356663441,-0.490417894034120,0.103903722053895;
+0.0808637277425078,0.137997393692814,0.0732243025076525;
+-0.136037763493848,-0.514289314175851,0.196238477510531;
+-0.0472363763673247,0.144382713852219,-0.182797171662839];  %球心坐标,第一个是在双目相机坐标系下机械臂原点的大致坐标；
+y_init = [0,1,0];
+start= 2;
+z_direction = [-1,0,0 ; -1,0,0 ; 0,-1,0 ; 0,1,0 ; 0,0,-1 ; 0,1,0 ; 0,0,-1]; %每一个关节轴的z轴在双目相机坐标系下大致的朝向；
+end_theta = [-3.1370,3.3778,2.0141,3.0035,0.4218,0.7026];   %标定结束后每个关节真实的转角；
+count = size(z,1);
+for i = 1:count 
+    point(count-i+1,:) =  point(count-i+1,:) - point(1,:);%调整坐标系原点至机械臂原点的大致坐标；
+    if z(i,1:3)*z_direction(i,1:3)' <0 %调整关节轴的z轴方向至与大致方向同向；
+        z(i,1:3) = -1*z(i,1:3);
+    end
+end
+Ez = zeros(count,3);%存储双目相机坐标系下的每个坐标系的z轴；
+Ex = zeros(count,3);%存储双目相机坐标系下的每个坐标系的x轴；
+O_o = zeros(count,3);%存储双目相机坐标系下的每个坐标系的原点；
+Theta = zeros(count,1);%存储theta值；
+Alpha = zeros(count,1);%存储alpha值；
+Beita = zeros(count,1);%存储beita值；
+D_x = zeros(count,1);%存储d_x值；
+D_z = zeros(count,1);%存储d_z值；
+Ez(1,:) = z(1,:);%初始化世界坐标系；
+Ex(1,:) = cross(Ez(1,:),y_init);%初始化世界坐标系；
+O_o(1,:) = point(1,:);%初始化世界坐标系；
+for i = start:count
+    ez=array_one(Ez(i-1,:));
+    ex =array_one(Ex(i-1,:));
+    o = O_o(i-1,:);
+    ez_1 = array_one(z(i,:));
+    a = point(i,:);
+    if abs(ez(1)*ez_1(1)+ez(2)*ez_1(2)+ez(3)*ez_1(3))>=0.707%判断前后两坐标系之间的z轴是垂直关系还是平行关系；
+        [e_z,e_x,o_z,theta,d_x,d_z,alpha,beita]=parallel_1(ez,ex,o,ez_1,a);%在近似平行的情况下建立DH表
+    else
+        [e_z,e_x,o_z,theta,d_x,d_z,alpha,beita]= perpendicular(ez,ex,o,ez_1,a);%在近似垂直的情况下建立DH表
+    end
+    %以下为存储
+    Alpha(i) = alpha;
+    Beita(i) = beita;
+    Theta(i) = theta;
+    D_x(i) = d_x;
+    D_z(i) = d_z;
+    Ez(i,:) = e_z;
+    Ex(i,:) = e_x;
+    O_o(i,:) =o_z;
+end
+%输出坐标系下的x,y,z轴
+Print([1,0,0],[-100,-100,-100],100);
+text(-50,-100,-100,'x')
+Print([0,1,0],[-100,-100,-100],100);
+text(-100,-50,-100,'y')
+Print([0,0,1],[-100,-100,-100],100);
+text(-100,-100,-50,'z')
+
+base_z = Ez(start,:);%将基底转轴的坐标系设为基座坐标系
+base_x = Ex(start,:);
+base_o =O_o(start,:); 
+R = axis_trans(base_z,base_x,[0,0,1],[1,0,0]);%双目相机坐标系与基座坐标系旋转矩阵
+for i = start:count%将所有转轴的坐标系在基座坐标系下绘制出来
+    e_x = Ex(i,:);
+    e_z = Ez(i,:);
+    e_y = array_one(cross(e_z,e_x));
+    o_z = O_o(i,:)-base_o;
+    e_y = R*e_y';
+    e_x = R*e_x';
+    e_z = R*e_z';
+    o_z = R*(o_z)';
+    Print(e_x,o_z,50);
+    Print(e_y,o_z,100);
+    scatter3(o_z(1),o_z(2),o_z(3))
+    Print(e_z,o_z,600);
+    text(o_z(1)+100*e_z(1),o_z(2)+100*e_z(2),o_z(3)+100*e_z(3),num2str(i-1))
+end
+Alpha =  Alpha';
+Beita = Beita';
+Theta = Theta';
+D_x = D_x';
+D_z = D_z';
+Q = zeros(6,6);%将alpha,beita,theta,d_x,d_y,初始状态关节转角放于同一矩阵中。
+Q(1,1:5) = Alpha(start+1:count);
+Q(2,1:5) = Beita(start+1:count);
+Q(3,1:5) = Theta(start+1:count);
+Q(4,1:5) = D_x(start+1:count);
+Q(5,1:5) = D_z(start+1:count);
+Q(6,1:6) = end_theta;
+hold off
+
+
+function Print(ez,o,times)%根据起点、方向矢量和放大倍率绘制一条线段
+b_x = [times*ez(1)+o(1),o(1)];
+b_y = [times*ez(2)+o(2),o(2)];
+b_z = [times*ez(3)+o(3),o(3)];
+plot3(b_x,b_y,b_z);
+axis equal
+grid on
+hold on
+end
+function ez_R_e_z = axis_trans(ez,ex,e_z,e_x)%根据两组坐标确定两坐标之间的旋转矩阵
+ez =  array_one(ez);
+e_z =  array_one(e_z);
+ex =  array_one(ex);
+e_x =  array_one(e_x);
+ey =  array_one(cross(ez,ex));
+e_y =  array_one(cross(e_z,e_x));
+A = [ex;ey;ez];
+B = [e_x;e_y;e_z];
+ez_R_e_z = zeros(3,3);
+for i = 1:3
+    for j =1:3
+        ez_R_e_z(i,j) = A(i,:)*B(j,:)';
+        if abs(ez_R_e_z(i,j)) < 1e-10
+            ez_R_e_z(i,j) = 0;
+        end
+    end
+end
+end
+function E = array_one(array)%根据矢量获得同向的单位矢量。
+L = (array(1)^2+array(2)^2+array(3)^2)^0.5;
+E = array./L;
+end
